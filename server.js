@@ -13,13 +13,20 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8244317187:AAEwq9k
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || ''; // Будет определен при первом запросе
 
 // Функция отправки сообщения в Telegram
-function sendTelegramMessage(chatId, message) {
+function sendTelegramMessage(chatId, message, threadId = null) {
   return new Promise((resolve, reject) => {
-    const data = JSON.stringify({
+    const payload = {
       chat_id: chatId,
       text: message,
       parse_mode: 'HTML'
-    });
+    };
+    
+    // Если указан thread_id (для форум-чатов), добавляем его
+    if (threadId) {
+      payload.message_thread_id = threadId;
+    }
+    
+    const data = JSON.stringify(payload);
 
     console.log('JSON для отправки:', data);
 
@@ -147,9 +154,9 @@ app.delete('/api/zones/:id', (req, res) => {
 // Отправить уведомление о неубранной зоне
 app.post('/api/telegram/notify-dirty-zone', async (req, res) => {
   try {
-    const { branch, zoneName, chatId } = req.body;
+    const { branch, zoneName, chatId, threadId } = req.body;
     
-    console.log('Получены данные:', { branch, zoneName, chatId });
+    console.log('Получены данные:', { branch, zoneName, chatId, threadId });
     
     if (!chatId) {
       return res.status(400).json({ error: 'Chat ID is required' });
@@ -163,7 +170,7 @@ app.post('/api/telegram/notify-dirty-zone', async (req, res) => {
     
     console.log('Отправляю сообщение:', message);
     
-    const result = await sendTelegramMessage(chatId, message);
+    const result = await sendTelegramMessage(chatId, message, threadId);
     res.json({ success: true, result });
   } catch (error) {
     console.error('Error sending Telegram notification:', error);
@@ -174,7 +181,7 @@ app.post('/api/telegram/notify-dirty-zone', async (req, res) => {
 // Отправить произвольное сообщение в Telegram
 app.post('/api/telegram/send-message', async (req, res) => {
   try {
-    const { message, chatId } = req.body;
+    const { message, chatId, threadId } = req.body;
     
     if (!chatId) {
       return res.status(400).json({ error: 'Chat ID is required' });
@@ -184,7 +191,7 @@ app.post('/api/telegram/send-message', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
     
-    const result = await sendTelegramMessage(chatId, message);
+    const result = await sendTelegramMessage(chatId, message, threadId);
     res.json({ success: true, result });
   } catch (error) {
     console.error('Error sending Telegram message:', error);
@@ -221,6 +228,39 @@ app.get('/api/telegram/bot-info', async (req, res) => {
     request.end();
   } catch (error) {
     console.error('Error getting bot info:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить обновления (для определения Chat ID)
+app.get('/api/telegram/get-updates', async (req, res) => {
+  try {
+    const options = {
+      hostname: 'api.telegram.org',
+      port: 443,
+      path: `/bot${TELEGRAM_BOT_TOKEN}/getUpdates`,
+      method: 'GET'
+    };
+
+    const request = https.request(options, (response) => {
+      let data = '';
+      
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      response.on('end', () => {
+        res.json(JSON.parse(data));
+      });
+    });
+
+    request.on('error', (error) => {
+      res.status(500).json({ error: error.message });
+    });
+
+    request.end();
+  } catch (error) {
+    console.error('Error getting updates:', error);
     res.status(500).json({ error: error.message });
   }
 });
